@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """
-Chainlit Web界面
+Chainlit Web 界面
 支持 PostgreSQL 历史记录、文档上传、问答系统
 """
 
 import sys
 import os
 import asyncio
+import logging
 import chainlit as cl
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from chainlit.types import ThreadDict
 from dotenv import load_dotenv
 import threading
+
+# 禁用 Chainlit 的 SQLAlchemy 相关 warning（JSONB 查询兼容性问题）
+logging.getLogger('chainlit').setLevel(logging.ERROR)
+logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
 
 try:
     from query_system import QASystem, UnifiedConfigManager
@@ -178,8 +183,10 @@ async def on_chat_resume(thread: ThreadDict):
 async def on_message(message: cl.Message):
     """
     处理用户消息
-    核心问答逻辑，复用QASystem.query()方法
+    核心问答逻辑，复用 QASystem.query() 方法
     同时处理控制命令和文档上传
+    
+    支持多轮对话上下文（仅保留问答摘要，不包含检索文档）
     """
     user_input = str(message.content).strip()
     
@@ -208,6 +215,21 @@ async def on_message(message: cl.Message):
             qa_system = get_qa_system()
             cl.user_session.set("qa_system", qa_system)
 
+        # 获取历史对话（用于多轮对话上下文）
+        chat_history = cl.user_session.get("chat_history", [])
+        
+        # 如果有历史对话，将历史对话作为上下文，不包含检索到的文档
+        if chat_history:
+            # 构建带上下文的 prompt（不限制轮数）
+            context = "\n\n".join([
+                f"用户：{msg['content']}" if msg['role'] == 'user' 
+                else f"助手：{msg['content']}"
+                for msg in chat_history
+            ])
+            user_input_with_context = f"对话历史：\n{context}\n\n当前问题：{user_input}"
+        else:
+            user_input_with_context = user_input
+
         # 创建消息对象（用于流式输出）
         response_msg = cl.Message(content="")
         await response_msg.send()
@@ -215,15 +237,23 @@ async def on_message(message: cl.Message):
         # 检查系统配置，判断是否使用流式输出
         if qa_system.config.system.streaming_output:
             # 使用流式查询
-            await stream_response(qa_system, user_input, response_msg)
+            await stream_response(qa_system, user_input_with_context, response_msg)
         else:
             # 使用普通查询
-            await normal_response(qa_system, user_input, response_msg)
+            await normal_response(qa_system, user_input_with_context, response_msg)
+
+        # 更新历史对话（只保留问答摘要，不包含检索文档）
+        chat_history.append({"role": "user", "content": user_input})
+        chat_history.append({"role": "assistant", "content": response_msg.content})
+        cl.user_session.set("chat_history", chat_history)
 
     except Exception as e:
-        error_msg = f"❌ 查询过程中出现错误: {str(e)}"
-        response_msg.content = error_msg
-        await response_msg.update()
+        error_msg = f"❌ 查询过程中出现错误：{str(e)}"
+        if response_msg:
+            response_msg.content = error_msg
+            await response_msg.update()
+        else:
+            await cl.Message(content=error_msg).send()
 
 
 # ===================== 响应处理函数 =====================
@@ -267,7 +297,6 @@ async def display_retrieved_docs(retrieved_docs: list):
             f"### 📄 文档 {i}\n\n",
             f"**章节**: {meta.get('chapter_path', '')}\n\n",
             f"**来源**: {meta.get('file_name', meta.get('source', '未知文档'))}\n\n",
-            f"**页码**: 第 {meta.get('page', 0)} 页\n\n",
             f"**相关度**: {meta.get('similarity_score', 0):.4f}\n\n",
             f"**向量库**: {meta.get('source_store', '未知库')}\n\n",
             f"**内容**:\n```\n{doc.get('content', '')}\n```\n\n",
@@ -279,11 +308,7 @@ async def display_retrieved_docs(retrieved_docs: list):
     await cl.Message(content="".join(docs_parts)).send()
 
 async def stream_response(qa_system, user_input: str, msg: cl.Message):
-    """
-    处理流式响应
-    复用QASystem.stream_query()生成器
-    支持文档上传内容
-    """
+    """处理流式响应"""
     full_response = ""
     retrieved_docs = []
 
@@ -324,8 +349,6 @@ async def stream_response(qa_system, user_input: str, msg: cl.Message):
 async def normal_response(qa_system, user_input: str, msg: cl.Message):
     """处理普通响应（带超时和错误处理）"""
     try:
-        import concurrent.futures
-
         # 设置超时时间的查询
         def query_with_timeout():
             return qa_system.query(user_input, verbose=False, return_retrieved_docs=True)
@@ -441,7 +464,7 @@ async def chat_profile():
 
 
 # ===================== 启动信息 =====================
+
 if __name__ == "__main__":
-    print("启动命令: chainlit run chainlit_app.py -w")
-    print("访问地址: http://localhost:8000")
-    print("=" * 60)
+    print("启动命令：chainlit run chainlit_app.py -w")
+    print("=" * 70)
