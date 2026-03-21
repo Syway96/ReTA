@@ -75,8 +75,9 @@ vector_store/
 # 处理后的数据文件
 processed_data/
 
-# Chainlit 
+# Chainlit 数据库和配置
 .chainlit/
+chainlit_data.db
 
 # 日志文件
 *.log
@@ -97,6 +98,9 @@ config.yaml
 
 # 压缩文件
 *.zip
+
+# 文档（技术文档、方案等）
+docs/
 *.tar.gz
 *.rar
 
