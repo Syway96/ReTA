@@ -53,22 +53,7 @@
 
 ## 三、快速开始
 
-### 一键部署
-
-```bash
-python deploy.py
-```
-
-**部署流程**：
-1. ✅ 检查 Python 版本（要求 3.11.x）
-2. ✅ 安装 requirements.txt 中的所有依赖
-3. ✅ 提供 API/Local 模型选择
-4. ✅ 下载缺失的模型文件（嵌入模型和重排序模型）
-5. ✅ 文本分块处理（处理教材文件）
-6. ✅ 构建向量库
-7. ✅ 启动 Chainlit 应用
-
-### 3.1 环境准备
+### 环境准备
 
 - Python 3.11
 - 创建 conda 虚拟环境:
@@ -79,7 +64,24 @@ python deploy.py
 - 安装依赖：`pip install -r requirements.txt`
 - API 或 Ollama 本地服务
 
-### 3.2 配置（于 `config.yaml` 中修改，注意路径使用正斜杠"`\`"）
+### 一键部署
+
+```bash
+python deploy.py
+```
+
+**部署流程**：
+1. ✅ 检查 Python 版本（要求 3.11.x）和 conda 环境
+2. ✅ 安装 requirements.txt 中的所有依赖
+3. ✅ 提供 API/Local 模型选择
+4. ✅ 下载缺失的模型文件（嵌入模型和重排序模型）
+5. ✅ 文本分块处理（处理教材文件）
+6. ✅ 构建向量库
+7. ✅ 启动 Chainlit 应用
+
+*以下为手动配置步骤：*
+
+### 3.1 配置（于 `config.yaml` 中修改，注意路径使用正斜杠"`\`"）
 
 1. API 密钥或 Ollama 本地模型
     - API：`qa_system.llm.api_key`、`api_base`、`model_name`、`provider`（默认 DeepSeek）
@@ -90,13 +92,13 @@ python deploy.py
 3. 重排序方法（可选，默认使用交叉编码器）
     - `qa_system.rerank.method`
 
-### 3.3 运行步骤
+### 3.2 运行步骤
 
 项目文件已包括分块后的 JSON 文件（`processed_data`）
 1. 构建向量库：`python vector_store.py --process-all ./processed_data`
 2. 打开 Chainlit 界面：`chainlit run chainlit_app.py -w`
 
-### 3.4 添加新内容
+### 3.3 添加新内容
 
 默认教材文件标题清晰、无重复（如 `# 1.1`、`# 1.2.1`）
 1. 将教材 Markdown 文件放入 `资料库` 目录
