@@ -383,11 +383,15 @@ class VectorStoreManager:
         if self.config.system and hasattr(self.config.system, 'log_level') and self.config.system.log_level:
             log_level = self.config.system.log_level
         
+        # 确保日志目录存在
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        
         logging.basicConfig(
             level=getattr(logging, log_level.upper()),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler("vector_manager.log", encoding='utf-8'),
+                logging.FileHandler("logs/vector_manager.log", encoding='utf-8'),
                 logging.StreamHandler()
             ]
         )
