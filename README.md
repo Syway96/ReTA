@@ -53,57 +53,120 @@
 
 ## 三、快速开始
 
-### 环境准备
+### 3.1 环境准备
 
 - Python 3.11
 - 创建 conda 虚拟环境:
 ```bash
-    conda create -n ReTA python=3.11.14 -y
-    conda activate ReTA
-```
-- 安装依赖：`pip install -r requirements.txt`
-- API 或 Ollama 本地服务
+# 使用 Conda 创建环境
+conda create -n ReTA python=3.11.14 -y
+conda activate ReTA
 
-### 一键部署
+# 或使用 venv（Linux/macOS）
+python -m venv ReTA
+source ReTA/bin/activate  # Linux/macOS
+# Windows: ReTA\Scripts\activate
+```
+
+#### 安装依赖
+```bash
+pip install -r requirements.txt
+```
+
+#### LLM 服务准备
+- **在线 API**: 准备 DeepSeek 或其他兼容 OpenAI API 的密钥
+- **本地模型**: 安装并运行 Ollama 服务（可选）
+
+---
+
+### 3.2 一键部署（推荐）
+
+系统提供了一键部署工具，自动完成所有配置和初始化：
 
 ```bash
 python deploy.py
 ```
 
-**部署流程**：
-1. ✅ 检查 Python 版本（要求 3.11.x）和 conda 环境
-2. ✅ 安装 requirements.txt 中的所有依赖
-3. ✅ 提供 API/Local 模型选择
-4. ✅ 下载缺失的模型文件（嵌入模型和重排序模型）
-5. ✅ 文本分块处理（处理教材文件）
-6. ✅ 构建向量库
-7. ✅ 启动 Chainlit 应用
+---
 
-*以下为手动配置步骤：*
+### 3.3 手动配置
 
-### 3.1 配置（于 `config.yaml` 中修改，注意路径使用正斜杠"`\`"）
+如需自定义配置或了解系统细节，可参考以下手动步骤：
 
-1. API 密钥或 Ollama 本地模型
-    - API：`qa_system.llm.api_key`、`api_base`、`model_name`、`provider`（默认 DeepSeek）
-    - Ollama：`qa_system.llm.model_name`、`provider`
-2. 模型路径（本地或在线，建议使用本地模型，在魔塔社区下载）
-    - 重排序模型：`qa_system.rerank.cross_encoder_model`、`cross_encoder_local_path`
-    - 嵌入模型：`qa_system.embedding.local_path`、`online_fallback`、`vector_processing.embedding.local_path`、`online_fallback`
-3. 重排序方法（可选，默认使用交叉编码器）
-    - `qa_system.rerank.method`
+#### 3.3.1 配置文件说明
 
-### 3.2 运行步骤
+编辑 `config.yaml` 文件进行系统配置：
 
-项目文件已包括分块后的 JSON 文件（`processed_data`）
-1. 构建向量库：`python vector_store.py --process-all ./processed_data`
-2. 打开 Chainlit 界面：`chainlit run chainlit_app.py -w`
+```yaml
+# LLM 配置（二选一）
+qa_system:
+  llm:
+    # 选项 A：使用在线 API（如 DeepSeek）
+    provider: "api"
+    api_key: "sk-your-api-key-here"
+    model_name: "deepseek-chat"
+    
+    # 选项 B：使用本地 Ollama 模型
+    provider: "local"
+    model_name: "qwen3:8b"
 
-### 3.3 添加新内容
+# 模型路径配置
+  embedding:
+    local_path: "D:/models/BAAI/bge-small-zh-v1.5"  # 本地嵌入模型
+    online_fallback: "BAAI/bge-small-zh-v1.5"       # 在线备选模型
+  
+  rerank:
+    cross_encoder_local_path: "D:/models/BAAI/bge-reranker-base"  # 本地重排序模型
+```
 
-默认教材文件标题清晰、无重复（如 `# 1.1`、`# 1.2.1`）
-1. 将教材 Markdown 文件放入 `资料库` 目录
-2. 标题处理：`python process_titles.py ./资料库`（直接覆盖原文件）
-3. 数据分块：`python data_loader.py process "./资料库"`
+**配置要点**：
+- 路径使用正斜杠 `/` 或双反斜杠 `\\`
+- 本地模型需提前从 [ModelScope](https://modelscope.cn) 下载
+
+#### 3.3.2 手动运行步骤
+
+**步骤 1：构建向量库**
+```bash
+# 使用预处理的文档数据
+python vector_store.py --build --data ./processed_data --output ./vector_store
+
+# 或处理新文档
+python data_loader.py --input ./教材目录 --output ./processed_data
+python vector_store.py --build --data ./processed_data --output ./vector_store
+```
+
+**步骤 2：启动 Web 界面**
+```bash
+# 开发模式（带热重载）
+chainlit run chainlit_app.py -w
+
+# 生产模式
+chainlit run chainlit_app.py
+```
+
+访问 http://localhost:8000 开始使用。
+
+#### 3.3.3 知识库扩展
+
+**添加新教材**：
+1. 将 Markdown 格式的教材文件放入 `资料库/` 目录
+2. 确保标题格式规范（如 `# 1.1`、`## 1.1.1`）
+3. 运行数据处理流程：
+
+```bash
+# 1. 标题规范化（可选）
+python process_titles.py ./资料库
+
+# 2. 文档分块处理
+python data_loader.py --input ./资料库 --output ./processed_data
+
+# 3. 增量更新向量库
+python vector_store.py --update --data ./processed_data --output ./vector_store
+```
+
+**注意事项**：
+- 教材文件名建议使用英文，防止构建 Chroma 向量库时报错
+- 标题层级应清晰、无重复
 
 ## 系统架构
 
@@ -165,12 +228,6 @@ graph TB
     class MarkdownFiles,TitleProcessor,DataProcessor,Chunker,ProcessedData,VectorBuilder,EmbeddingModel,VectorStore data
     class Config config
 ```
-
-### 核心流程说明
-
-1. **数据准备流程**: Markdown 教材文件 → 标题预处理 → 结构化分块 → 向量化存储
-2. **问答处理流程**: 用户问题 → 复杂度分类 → 动态检索配置 → 多库并行检索 → 相似度过滤 → 重排序 → 答案生成
-3. **配置管理**: 统一的 YAML 配置管理所有模块参数，支持灵活调整
 
 ## 项目结构
 

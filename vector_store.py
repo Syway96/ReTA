@@ -64,13 +64,13 @@ class ConfigManager:
 
 # ==================== 日志设置 ====================
 
-def setup_logging(log_level: str = "INFO", log_file: str = "vector_store.log"):
-    """设置日志"""
-    # 创建日志目录
+def setup_logging(log_level: str = "INFO", log_file: str = "logs/vector_store.log"):
+    """设置日志配置"""
+    # 确保日志目录存在
     log_dir = os.path.dirname(log_file)
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
-
+    
     # 配置日志
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
@@ -527,12 +527,16 @@ def main():
         if idx + 1 < len(sys.argv):
             log_level = sys.argv[idx + 1]
 
+    # 确保日志目录存在
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    
     # 配置日志（仅在主程序执行时）
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler("vector_store.log", encoding='utf-8'),
+            logging.FileHandler("logs/vector_store.log", encoding='utf-8'),
             logging.StreamHandler()
         ]
     )

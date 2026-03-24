@@ -737,7 +737,7 @@ class DataProcessor:
 # ==================== 配置常量 ====================
 # 将硬编码值提取为常量，便于统一修改
 DEFAULT_OUTPUT_DIR = "./processed_data"
-DEFAULT_LOG_FILE = "data_processing.log"
+DEFAULT_LOG_FILE = "logs/data_processing.log"
 MAX_PREVIEW_LENGTH = 100
 DISPLAY_WIDTH = 60
 SEPARATOR = "=" * DISPLAY_WIDTH
@@ -753,6 +753,10 @@ LOG_LEVELS = {
 }
 
 # ==================== 日志配置 ====================
+
+# 确保日志目录存在
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
 
 # 配置基础日志
 logging.basicConfig(
