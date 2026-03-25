@@ -1,0 +1,45 @@
+/* Edge 专用修复 */
+html {
+    overflow: hidden !important;
+    height: 100% !important;
+}
+
+body {
+    overflow: hidden !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    top: 0 !important;
+    left: 0 !important;
+}
+
+/* Chainlit 根容器 */
+#root,
+div[data-testid="chainlit-app"],
+div[class*="Chainlit"] {
+    height: 100vh !important;
+    overflow: hidden !important;
+    position: relative !important;
+}
+
+/* 消息区域 - 让内容自然撑开，不出现独立滚动条 */
+div[class*="message"],
+div[class*="chat"],
+div[class*="MessageList"],
+div[class*="messages-container"] {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    position: relative !important;
+}
+
+/* 输入区域固定底部 */
+div[class*="input"],
+div[class*="InputArea"] {
+    position: sticky !important;
+    bottom: 0 !important;
+    background: white !important;
+    z-index: 10 !important;
+}

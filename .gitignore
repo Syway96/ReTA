@@ -75,9 +75,8 @@ vector_store/
 # 处理后的数据文件
 processed_data/
 
-# Chainlit 数据库和配置
-.chainlit/
-chainlit_data.db
+# Chainlit 数据
+.chainlit/translations/
 
 # 日志文件
 *.log
