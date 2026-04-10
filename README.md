@@ -10,6 +10,8 @@
 
 本项目旨在利用 RAG 技术，使大模型能够根据问题需求，智能检索知识库中的相关信息，减少幻觉，提供严格基于知识库的回答，并附精确的参考来源供进一步查阅。
 
+---
+
 ## 二、功能特性
 
 ### 2.1 知识库构建
@@ -45,17 +47,13 @@
 - 对 `no_retrieval` 类型问题可直接跳过向量检索，减少无效召回
 - 支持通过 `qa_system.retrieval.dynamic_complexity` 配置分类比例与检索上限
 
-### 2.7 待实现功能
-
-- 文档上传：用户可在对话中上传文件作为上下文
-- 查询增强：用户可选择是否优化输入内容，以尝试提升检索效果
-- 网页界面优化：提供知识库选择等
+---
 
 ## 三、快速开始
 
 ### 3.1 环境准备
 
-- Python 3.11
+- Python 3.11.x（建议 3.11.14）
 - 创建 conda 虚拟环境:
 ```bash
 # 使用 Conda 创建环境
@@ -64,8 +62,7 @@ conda activate ReTA
 
 # 或使用 venv（Linux/macOS）
 python -m venv ReTA
-source ReTA/bin/activate  # Linux/macOS
-# Windows: ReTA\Scripts\activate
+source ReTA/bin/activate
 ```
 
 #### 安装依赖
@@ -76,8 +73,6 @@ pip install -r requirements.txt
 #### LLM 服务准备
 - **在线 API**: 准备 DeepSeek 或其他兼容 OpenAI API 的密钥
 - **本地模型**: 安装并运行 Ollama 服务（可选）
-
----
 
 ### 3.2 一键部署（推荐）
 
@@ -106,7 +101,7 @@ qa_system:
     api_key: "sk-your-api-key-here"
     model_name: "deepseek-chat"
     
-    # 选项 B：使用本地 Ollama 模型
+    # 选项 B：使用本地 Ollama 模型（如 Qwen3:8b）
     provider: "local"
     model_name: "qwen3:8b"
 
@@ -121,7 +116,7 @@ qa_system:
 
 **配置要点**：
 - 路径使用正斜杠 `/` 或双反斜杠 `\\`
-- 本地模型需提前从 [ModelScope](https://modelscope.cn) 下载
+- 嵌入模型、重排序模型如果**无法使用在线模型**，需提前从 [ModelScope](https://modelscope.cn) 下载
 
 #### 3.3.2 手动运行步骤
 
@@ -168,7 +163,7 @@ python vector_store.py --update --data ./processed_data --output ./vector_store
 - 教材文件名建议使用英文，防止构建 Chroma 向量库时报错
 - 标题层级应清晰、无重复
 
-## 系统架构
+## 四、系统架构
 
 ```mermaid
 graph TB
@@ -229,7 +224,9 @@ graph TB
     class Config config
 ```
 
-## 项目结构
+---
+
+## 五、项目结构
 
 ```text
 ReTA/
@@ -240,7 +237,7 @@ ReTA/
 ├─ query_system.py               # 问答系统核心（配置、检索、重排、复杂度分类、问答链）
 ├─ vector_store.py               # 向量库构建与管理（Chroma、批处理、连接池）
 ├─ data_loader.py                # Markdown 数据清洗与结构化分块
-├─ check_environment.py          # 环境信息与依赖快照脚本
+├─ export_environment.py          # 环境信息与依赖快照脚本
 ├─ config.yaml                   # 运行配置
 ├─ .gitignore                    # Git 忽略配置
 ├─ 资料库/                        # 教材数据目录
@@ -249,6 +246,11 @@ ReTA/
 └─ vector_store/                 # 持久化向量库目录（运行后生成）
 ```
 
+---
+
 ## 后续计划
 
 - 使用 LangGraph 实现更复杂的问答流程
+- 文档上传：用户可在对话中上传文件作为上下文
+- 查询增强：用户可选择是否优化输入内容，以尝试提升检索效果
+- 网页界面优化：提供知识库选择等额外功能
