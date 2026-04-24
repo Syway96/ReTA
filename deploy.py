@@ -206,13 +206,73 @@ class ConfigValidator:
         self.logger = logger
         self.project_root = Path(__file__).parent.absolute()
         self.config_path = self.project_root / "config.yaml"
+        self.env_path = self.project_root / ".env"
         self.config = None
+    
+    def _update_env_file(self, key: str, value: str) -> bool:
+        """更新 .env 文件中的键值对"""
+        try:
+            lines = []
+            found = False
+            
+            if self.env_path.exists():
+                with open(self.env_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+            
+            new_line = f"{key}={value}\n"
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith(f'{key}=') or stripped == f'#{key}':
+                    lines[i] = new_line
+                    found = True
+                    break
+            
+            if not found:
+                lines.append(new_line)
+            
+            with open(self.env_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"更新 .env 文件失败：{str(e)}")
+            return False
     
     def load_config(self) -> bool:
         """加载配置文件"""
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config = yaml.safe_load(f)
+                self.config = yaml.safe_load(f) or {}
+            
+            # 环境变量覆盖 LLM 配置
+            from dotenv import load_dotenv
+            load_dotenv()
+            
+            env_overrides = {
+                'provider': os.getenv('LLM_PROVIDER'),
+                'api_key': os.getenv('LLM_API_KEY'),
+                'api_base': os.getenv('LLM_API_BASE'),
+                'model_name': os.getenv('LLM_MODEL_NAME'),
+            }
+            
+            llm = self.config.setdefault('qa_system', {}).setdefault('llm', {})
+            for key, value in env_overrides.items():
+                if value is not None:
+                    llm[key] = value
+
+            # 环境变量覆盖模型路径配置
+            embedding_model_path = os.getenv('EMBEDDING_MODEL_PATH')
+            if embedding_model_path:
+                vector_embedding = self.config.setdefault('vector_processing', {}).setdefault('embedding', {})
+                vector_embedding['local_path'] = embedding_model_path
+                qa_embedding = self.config.setdefault('qa_system', {}).setdefault('embedding', {})
+                qa_embedding['local_path'] = embedding_model_path
+
+            cross_encoder_path = os.getenv('CROSS_ENCODER_MODEL_PATH')
+            if cross_encoder_path:
+                rerank = self.config.setdefault('qa_system', {}).setdefault('rerank', {})
+                rerank['cross_encoder_local_path'] = cross_encoder_path
+
             self.logger.success("配置文件加载成功 ✓")
             return True
         except Exception as e:
@@ -240,96 +300,39 @@ class ConfigValidator:
         return True
     
     def update_provider(self, provider: str) -> bool:
-        """更新配置文件中的 LLM Provider"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-            
-            if 'qa_system' not in config:
-                config['qa_system'] = {}
-            if 'llm' not in config['qa_system']:
-                config['qa_system']['llm'] = {}
-            
-            config['qa_system']['llm']['provider'] = provider
-            
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-            
-            self.config = config
+        """更新 .env 中的 LLM Provider"""
+        if self._update_env_file('LLM_PROVIDER', provider):
             self.logger.success(f"LLM Provider 已更新为：{provider} ✓")
             return True
-        except Exception as e:
-            self.logger.error(f"更新 Provider 失败：{str(e)}")
-            return False
+        return False
     
     def update_api_key(self, api_key: str) -> bool:
-        """更新配置文件中的 API Key"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-            
-            if 'qa_system' not in config:
-                config['qa_system'] = {}
-            if 'llm' not in config['qa_system']:
-                config['qa_system']['llm'] = {}
-            
-            config['qa_system']['llm']['api_key'] = api_key
-            
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-            
-            self.config = config
-            self.logger.success("API Key 已更新到配置文件 ✓")
+        """更新 .env 中的 API Key"""
+        if self._update_env_file('LLM_API_KEY', api_key):
+            self.logger.success("API Key 已更新到 .env ✓")
             return True
-        except Exception as e:
-            self.logger.error(f"更新 API Key 失败：{str(e)}")
-            return False
+        return False
+    
+    def update_api_base(self, api_base: str) -> bool:
+        """更新 .env 中的 API Base URL"""
+        if self._update_env_file('LLM_API_BASE', api_base):
+            self.logger.success(f"API Base URL 已更新为：{api_base} ✓")
+            return True
+        return False
     
     def update_api_model(self, model_name: str) -> bool:
-        """更新配置文件中的 API 模型名称"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-            
-            if 'qa_system' not in config:
-                config['qa_system'] = {}
-            if 'llm' not in config['qa_system']:
-                config['qa_system']['llm'] = {}
-            
-            config['qa_system']['llm']['model_name'] = model_name
-            
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-            
-            self.config = config
+        """更新 .env 中的 API 模型名称"""
+        if self._update_env_file('LLM_MODEL_NAME', model_name):
             self.logger.success(f"API 模型已更新为：{model_name} ✓")
             return True
-        except Exception as e:
-            self.logger.error(f"更新 API 模型失败：{str(e)}")
-            return False
+        return False
     
     def update_local_model(self, model_name: str) -> bool:
-        """更新配置文件中的本地模型名称"""
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-            
-            if 'qa_system' not in config:
-                config['qa_system'] = {}
-            if 'llm' not in config['qa_system']:
-                config['qa_system']['llm'] = {}
-            
-            config['qa_system']['llm']['model_name'] = model_name
-            
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-            
-            self.config = config
+        """更新 .env 中的本地模型名称"""
+        if self._update_env_file('LLM_MODEL_NAME', model_name):
             self.logger.success(f"本地模型已更新为：{model_name} ✓")
             return True
-        except Exception as e:
-            self.logger.error(f"更新本地模型失败：{str(e)}")
-            return False
+        return False
     
     def run_validation(self) -> Dict[str, bool]:
         """运行所有验证"""
@@ -696,6 +699,17 @@ class DeploymentOrchestrator:
                     self.logger.warning("API Key 更新失败，但仍可继续")
             else:
                 self.logger.warning("未输入 API Key，使用配置文件中的值")
+            
+            current_api_base = llm_config.get('api_base', '')
+            if current_api_base:
+                api_base_input = input(f"请输入 API Base URL (回车保持当前 {current_api_base}): ").strip()
+                if api_base_input:
+                    self.validator.update_api_base(api_base_input)
+            else:
+                api_base_input = input("请输入 API Base URL (如 https://api.deepseek.com): ").strip()
+                while not api_base_input:
+                    api_base_input = input("API Base URL 不能为空，请重新输入: ").strip()
+                self.validator.update_api_base(api_base_input)
         elif choice == '2':
             provider = 'local'
             self.validator.update_provider('local')
@@ -740,6 +754,12 @@ class DeploymentOrchestrator:
                             self.validator.update_api_model(new_model)
                         else:
                             self.logger.warning("未输入模型名称，保持原配置")
+                
+                current_api_base = llm_config.get('api_base', '')
+                if current_api_base:
+                    self.logger.success(f"API Base URL 已配置：{current_api_base} ✓")
+                else:
+                    self.logger.warning("API Base URL 未配置，问答系统可能无法正常工作")
             else:
                 model_name = llm_config.get('model_name', '')
                 self.logger.info(f"使用本地模型：{model_name}")
