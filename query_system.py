@@ -1164,3 +1164,4 @@ class QASystem:
                 yield f"查询过程中出现错误: {str(e)}"
 
         return _stream(), formatted_docs
+

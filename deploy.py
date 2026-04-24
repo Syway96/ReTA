@@ -358,7 +358,6 @@ class ModelDownloader:
         self.models = {
             'embedding': {
                 'model_id': 'BAAI/bge-small-zh-v1.5',
-                'env_key': 'EMBEDDING_MODEL_PATH',
                 'config_paths': [
                     'vector_processing.embedding.local_path',
                     'qa_system.embedding.local_path'
@@ -366,7 +365,6 @@ class ModelDownloader:
             },
             'reranker': {
                 'model_id': 'BAAI/bge-reranker-base',
-                'env_key': 'CROSS_ENCODER_MODEL_PATH',
                 'config_paths': [
                     'qa_system.rerank.cross_encoder_local_path'
                 ]
@@ -481,17 +479,7 @@ class ModelDownloader:
             
             if not model_path:
                 self.logger.warning(f"未找到 {model_name} 模型的配置路径")
-                user_path = input(f"请输入 {model_name} 模型路径（如已下载），或直接回车跳过: ").strip()
-                if user_path:
-                    if Path(user_path).exists():
-                        self.logger.success(f"模型路径有效：{user_path} ✓")
-                        self.validator._update_env_file(model_info['env_key'], user_path)
-                        results[f'{model_name}_exists'] = True
-                    else:
-                        self.logger.warning(f"路径不存在：{user_path}")
-                        results[f'{model_name}_exists'] = False
-                else:
-                    results[f'{model_name}_exists'] = False
+                results[f'{model_name}_exists'] = False
                 continue
             
             if self.check_model_exists(model_path):
