@@ -112,6 +112,37 @@ class UnifiedConfigManager:
             vector = config.get('vector_processing', {})
             data = config.get('data_processing', {})
 
+            # 环境变量覆盖 LLM 配置（优先级最高）
+            from dotenv import load_dotenv
+            load_dotenv()
+
+            if 'llm' not in qa:
+                qa['llm'] = {}
+
+            env_overrides = {
+                'provider': os.getenv('LLM_PROVIDER'),
+                'api_key': os.getenv('LLM_API_KEY'),
+                'api_base': os.getenv('LLM_API_BASE'),
+                'model_name': os.getenv('LLM_MODEL_NAME'),
+            }
+
+            for key, value in env_overrides.items():
+                if value is not None:
+                    qa['llm'][key] = value
+
+            # 环境变量覆盖模型路径配置（优先级最高）
+            embedding_model_path = os.getenv('EMBEDDING_MODEL_PATH')
+            if embedding_model_path:
+                if 'embedding' not in vector:
+                    vector['embedding'] = {}
+                vector['embedding']['local_path'] = embedding_model_path
+
+            cross_encoder_path = os.getenv('CROSS_ENCODER_MODEL_PATH')
+            if cross_encoder_path:
+                if 'rerank' not in qa:
+                    qa['rerank'] = {}
+                qa['rerank']['cross_encoder_local_path'] = cross_encoder_path
+
             # 构建配置数据 - 使用dataclass.from_dict处理嵌套配置
             from dacite import from_dict
             
@@ -759,7 +790,7 @@ class QASystem:
             # 检查API密钥
             api_key = self.config.llm.api_key
             if not api_key:
-                print("❌ 请在config.yaml中设置llm.api_key")
+                print("❌ 请在 .env 中设置 LLM_API_KEY")
                 return False
 
             # 确定API基础URL
@@ -773,8 +804,8 @@ class QASystem:
 
             # 创建LLM
             self.llm = ChatOpenAI(
-                api_key=self.config.llm.api_key,
-                base_url=self.config.llm.api_base,
+                api_key=api_key,
+                base_url=api_base,
                 model=self.config.llm.model_name,
                 temperature=self.config.llm.temperature,
                 max_tokens=self.config.llm.num_predict,
