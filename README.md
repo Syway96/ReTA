@@ -72,11 +72,12 @@ pip install -r requirements.txt
 
 #### LLM 服务准备
 - **在线 API**: 准备 DeepSeek 或其他兼容 OpenAI API 的密钥
-- **本地模型**: 安装并运行 Ollama 服务（可选）
+- **本地大模型**: 安装并运行 Ollama 服务（可选）
+- **本地/在线嵌入模型、重排序模型**
 
 ### 3.2 一键部署（推荐）
 
-系统提供了一键部署工具，自动完成所有配置和初始化：
+系统提供了一键部署工具，高效完成所有配置和初始化：
 
 ```bash
 python deploy.py
@@ -90,53 +91,43 @@ python deploy.py
 
 #### 3.3.1 配置文件说明
 
-编辑 `config.yaml` 文件进行系统配置：
+系统配置分为两个文件：**敏感配置（密钥、模型路径）** 放在 `.env`，**数据处理等非敏感配置** 放在 `config.yaml`。
 
-```yaml
-# LLM 配置（二选一）
-qa_system:
-  llm:
-    # 选项 A：使用在线 API（如 DeepSeek）
-    provider: "api"
-    api_key: "sk-your-api-key-here"
-    model_name: "deepseek-chat"
-    
-    # 选项 B：使用本地 Ollama 模型（如 Qwen3:8b）
-    provider: "local"
-    model_name: "qwen3:8b"
+#### `.env` 文件配置（LLM 密钥 & 模型路径）
 
-# 模型路径配置
-  embedding:
-    local_path: "D:/models/BAAI/bge-small-zh-v1.5"  # 本地嵌入模型
-    online_fallback: "BAAI/bge-small-zh-v1.5"       # 在线备选模型
-  
-  rerank:
-    cross_encoder_local_path: "D:/models/BAAI/bge-reranker-base"  # 本地重排序模型
+编辑项目根目录下的 `.env` 文件：
+
+```env
+# ===== LLM 配置 =====
+LLM_PROVIDER=api                               # api 或 local
+LLM_API_KEY=sk-your-deepseek-api-key           # API 密钥
+LLM_API_BASE=https://api.deepseek.com          # API 地址
+LLM_MODEL_NAME=deepseek-v4-pro                 # 模型名称
+
+# ===== 模型路径配置 =====
+EMBEDDING_MODEL_PATH=D:/models/BAAI/bge-small-zh-v1.5       # 本地嵌入模型路径
+CROSS_ENCODER_MODEL_PATH=D:/models/BAAI/bge-reranker-base   # 本地重排序模型路径
 ```
 
 **配置要点**：
-- 路径使用正斜杠 `/` 或双反斜杠 `\\`
+- 路径建议使用正斜杠 `/`
 - 嵌入模型、重排序模型如果**无法使用在线模型**，需提前从 [ModelScope](https://modelscope.cn) 下载
 
 #### 3.3.2 手动运行步骤
 
-**步骤 1：构建向量库**
+**步骤 1：文档分块处理**
 ```bash
-# 使用预处理的文档数据
-python vector_store.py --build --data ./processed_data --output ./vector_store
-
-# 或处理新文档
-python data_loader.py --input ./教材目录 --output ./processed_data
-python vector_store.py --build --data ./processed_data --output ./vector_store
+python data_loader.py process "./textbooks"
 ```
 
-**步骤 2：启动 Web 界面**
+**步骤 2：构建向量库**
 ```bash
-# 开发模式（带热重载）
-chainlit run chainlit_app.py -w
+python vector_store.py --process-all ./processed_data
+```
 
-# 生产模式
-chainlit run chainlit_app.py
+**步骤 3：启动 Web 界面**
+```bash
+chainlit run chainlit_app.py -w
 ```
 
 访问 http://localhost:8000 开始使用。
@@ -144,19 +135,19 @@ chainlit run chainlit_app.py
 #### 3.3.3 知识库扩展
 
 **添加新教材**：
-1. 将 Markdown 格式的教材文件放入 `资料库/` 目录
+1. 将 Markdown 格式的教材文件放入 `textbooks/` 目录
 2. 确保标题格式规范（如 `# 1.1`、`## 1.1.1`）
 3. 运行数据处理流程：
 
 ```bash
 # 1. 标题规范化（可选）
-python process_titles.py ./资料库
+python textbooks/process_titles.py ./textbooks
 
 # 2. 文档分块处理
-python data_loader.py --input ./资料库 --output ./processed_data
+python data_loader.py process "./textbooks"
 
-# 3. 增量更新向量库
-python vector_store.py --update --data ./processed_data --output ./vector_store
+# 3. 增量更新向量库（--force 可选，强制重建）
+python vector_store.py --process-all ./processed_data
 ```
 
 **注意事项**：
@@ -240,7 +231,7 @@ ReTA/
 ├─ export_environment.py          # 环境信息与依赖快照脚本
 ├─ config.yaml                   # 运行配置
 ├─ .gitignore                    # Git 忽略配置
-├─ 资料库/                        # 教材数据目录
+├─ textbooks/                     # 教材数据目录
 │  └─ process_titles.py          # 教材标题层级预处理脚本
 ├─ processed_data/               # 分块后的 JSON 数据（运行后生成）
 └─ vector_store/                 # 持久化向量库目录（运行后生成）
