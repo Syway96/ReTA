@@ -130,6 +130,19 @@ class UnifiedConfigManager:
                 if value is not None:
                     qa['llm'][key] = value
 
+            # 环境变量覆盖模型路径配置（优先级最高）
+            embedding_model_path = os.getenv('EMBEDDING_MODEL_PATH')
+            if embedding_model_path:
+                if 'embedding' not in vector:
+                    vector['embedding'] = {}
+                vector['embedding']['local_path'] = embedding_model_path
+
+            cross_encoder_path = os.getenv('CROSS_ENCODER_MODEL_PATH')
+            if cross_encoder_path:
+                if 'rerank' not in qa:
+                    qa['rerank'] = {}
+                qa['rerank']['cross_encoder_local_path'] = cross_encoder_path
+
             # 构建配置数据 - 使用dataclass.from_dict处理嵌套配置
             from dacite import from_dict
             
@@ -519,18 +532,8 @@ class VectorStoreManager:
                 if test_count > 0:
                     logging.debug(f"  成功加载 {store_id}: {test_count} 个文档")
 
-                    # 尝试读取向量库信息文件
-                    info_file = Path(self.config.vector_store_dir) / "vector_stores.json"
+                    # 向量库信息
                     store_info = {"num_docs": test_count, "path": str(store_path)}
-
-                    if info_file.exists():
-                        try:
-                            with open(info_file, 'r', encoding='utf-8') as f:
-                                all_info = json.load(f)
-                            if collection_name in all_info:
-                                store_info.update(all_info[collection_name])
-                        except:
-                            pass
 
                     # 读取对应的数据文件信息
                     data_file = Path(self.config.data_dir) / f"{data_id}.json"
@@ -863,14 +866,14 @@ class QASystem:
                     # 获取元数据
                     metadata = doc.metadata
                     source = metadata.get('source', '未知文档')
-                    # page = metadata.get('page', '未知')
+                    page = metadata.get('page', '未知')
                     store = metadata.get('source_store', '未知库')
                     score = metadata.get('similarity_score', 0)
 
                     # 构建格式化字符串
                     formatted.append(
                         f"【片段 {i} | 相关度: {score:.3f}】\n"
-                        # f"来源: {store} - {source} (第{page}页)\n"
+                        f"来源: {store} - {source} (第{page}页)\n"
                         f"内容: {content}\n"
                     )
 
@@ -1161,3 +1164,4 @@ class QASystem:
                 yield f"查询过程中出现错误: {str(e)}"
 
         return _stream(), formatted_docs
+

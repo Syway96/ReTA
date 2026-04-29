@@ -533,7 +533,7 @@ class VectorStoreManager:
         
         if not self.check_processed_data_exists():
             self.logger.error("请先处理教材数据")
-            self.logger.info("运行：python data_loader.py process \"./资料库\"")
+            self.logger.info("运行：python data_loader.py process \"./textbooks\"")
             return False
         
         try:
