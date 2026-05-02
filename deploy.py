@@ -333,6 +333,20 @@ class ConfigValidator:
             self.logger.success(f"本地模型已更新为：{model_name} ✓")
             return True
         return False
+
+    def update_embedding_model_path(self, path: str) -> bool:
+        """更新 .env 中的嵌入模型路径"""
+        if self._update_env_file('EMBEDDING_MODEL_PATH', path):
+            self.logger.success(f"嵌入模型路径已更新为：{path} ✓")
+            return True
+        return False
+
+    def update_cross_encoder_model_path(self, path: str) -> bool:
+        """更新 .env 中的交叉编码器模型路径"""
+        if self._update_env_file('CROSS_ENCODER_MODEL_PATH', path):
+            self.logger.success(f"交叉编码器路径已更新为：{path} ✓")
+            return True
+        return False
     
     def run_validation(self) -> Dict[str, bool]:
         """运行所有验证"""
@@ -533,7 +547,7 @@ class VectorStoreManager:
         
         if not self.check_processed_data_exists():
             self.logger.error("请先处理教材数据")
-            self.logger.info("运行：python data_loader.py process \"./资料库\"")
+            self.logger.info("运行：python data_loader.py process \"./textbooks\"")
             return False
         
         try:
@@ -797,8 +811,48 @@ class DeploymentOrchestrator:
                     return False
                 self.logger.success("模型下载完成 ✓")
             else:
-                self.logger.warning("跳过模型下载，部分功能可能不可用")
-                return False
+                self.logger.info("如已通过其他渠道下载模型，请输入本地路径")
+                model_paths = {
+                    'embedding': {
+                        'default_path': "D:/models/BAAI/bge-small-zh-v1.5",
+                        'env_key': 'EMBEDDING_MODEL_PATH'
+                    },
+                    'reranker': {
+                        'default_path': "D:/models/BAAI/bge-reranker-base",
+                        'env_key': 'CROSS_ENCODER_MODEL_PATH'
+                    }
+                }
+                all_paths_ok = True
+                for model_name, model_info in self.model_downloader.models.items():
+                    result_key = f'{model_name}_exists'
+                    if model_results.get(result_key, False):
+                        continue
+                    
+                    default_path = model_paths.get(model_name, {}).get('default_path', '')
+                    self.logger.info(f"请为 {model_name} 模型输入路径（已存在则直接填写，默认 {default_path}）: ")
+                    user_path = input(f"  路径（回车跳过）: ").strip()
+                    
+                    if user_path:
+                        if Path(user_path).exists():
+                            if model_name == 'embedding':
+                                self.validator.update_embedding_model_path(user_path)
+                            else:
+                                self.validator.update_cross_encoder_model_path(user_path)
+                            self.logger.success(f"{model_name} 路径已配置：{user_path} ✓")
+                        else:
+                            self.logger.error(f"路径不存在：{user_path}")
+                            all_paths_ok = False
+                    else:
+                        self.logger.warning(f"跳过 {model_name} 模型配置")
+                        all_paths_ok = False
+                
+                if not all_paths_ok:
+                    self.logger.warning("部分模型路径未配置，问答功能可能受限")
+                    if input("是否继续启动？(y/n): ").strip().lower() != 'y':
+                        return False
+        
+        # 检查磁盘已有模型但 .env 未配置路径的情况
+        self._check_model_paths_in_env()
         
         if not self.vector_manager.run_check():
             self.logger.warning("向量库未就绪，问答功能可能受限")
@@ -815,6 +869,46 @@ class DeploymentOrchestrator:
             status = "✓" if passed else "✗"
             color = Colors.OKGREEN if passed else Colors.FAIL
             print(f"  {color}{status} {check}{Colors.ENDC}")
+
+    def _check_model_paths_in_env(self):
+        """检查磁盘已有模型但 .env 未配置路径，提醒用户填写"""
+        self.logger.header("模型路径检查")
+
+        model_paths = {
+            'embedding': {
+                'default_path': "D:/models/BAAI/bge-small-zh-v1.5",
+                'env_key': 'EMBEDDING_MODEL_PATH'
+            },
+            'reranker': {
+                'default_path': "D:/models/BAAI/bge-reranker-base",
+                'env_key': 'CROSS_ENCODER_MODEL_PATH'
+            }
+        }
+
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        for model_name, info in model_paths.items():
+            default_path = info['default_path']
+            env_key = info['env_key']
+
+            # 检查默认路径是否存在（模型已下载）
+            if not Path(default_path).exists():
+                continue
+
+            # 检查 .env 中是否已配置
+            current_value = os.getenv(env_key, '')
+            if current_value and current_value.strip():
+                self.logger.success(f"{model_name} 模型路径已配置：{current_value} ✓")
+                continue
+
+            self.logger.warning(f"检测到 {model_name} 模型已下载到 {default_path}，但未配置路径")
+            response = input(f"是否将路径写入 .env？（y/n，默认 y）: ").strip().lower()
+            if response != 'n':
+                if model_name == 'embedding':
+                    self.validator.update_embedding_model_path(default_path)
+                else:
+                    self.validator.update_cross_encoder_model_path(default_path)
 
 
 def main():
