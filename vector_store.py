@@ -16,6 +16,9 @@ import yaml
 from tqdm import tqdm
 from langchain_core.documents import Document
 from dacite import from_dict
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ==================== 配置管理 ====================
@@ -157,12 +160,13 @@ class VectorStoreManager:
         """初始化嵌入模型"""
         from langchain_huggingface import HuggingFaceEmbeddings
 
-        # 优先使用本地模型
-        model_path = self.config.embedding.local_path
+        # 优先使用本地模型（从环境变量读取）
+        model_path = os.getenv('EMBEDDING_MODEL_PATH') or self.config.embedding.local_path
 
         # 检查模型路径是否存在
-        if not os.path.exists(model_path):
-            logger.warning(f"本地模型路径不存在: {model_path}")
+        if model_path is None or not os.path.exists(model_path):
+            if model_path is not None:
+                logger.warning(f"本地模型路径不存在: {model_path}")
             logger.info(f"使用在线模型: {self.config.embedding.online_fallback}")
             model_path = self.config.embedding.online_fallback
 
