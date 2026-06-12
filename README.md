@@ -17,11 +17,11 @@
 ### 2.1 知识库构建
 
 - 支持 Markdown 格式教材的结构化分块（保留标题层级、章节结构）
-- 默认使用 BAAI/bge-small-zh-v1.5 嵌入模型构建向量库
+- 默认使用 Qwen3-Embedding-0.6B 嵌入模型构建向量库
 
 ### 2.2 向量检索
 
-- 默认使用 BAAI/bge-small-zh-v1.5 嵌入模型将文本编码为向量
+- 默认使用 Qwen3-Embedding-0.6B 嵌入模型将文本编码为向量
 - 默认使用 BAAI/bge-reranker-base 交叉编码器，对检索结果进行重排序
 - 支持根据配置启用动态检索参数（按问题复杂度自适应调整召回数量）
 
@@ -105,7 +105,7 @@ LLM_API_BASE=https://api.deepseek.com          # API 地址
 LLM_MODEL_NAME=deepseek-v4-pro                 # 模型名称
 
 # ===== 模型路径配置 =====
-EMBEDDING_MODEL_PATH=D:/models/BAAI/bge-small-zh-v1.5       # 本地嵌入模型路径
+EMBEDDING_MODEL_PATH=D:/models/Qwen/Qwen3-Embedding-0.6B       # 本地嵌入模型路径
 CROSS_ENCODER_MODEL_PATH=D:/models/BAAI/bge-reranker-base   # 本地重排序模型路径
 ```
 
@@ -192,7 +192,7 @@ graph TB
     
     %% 向量库构建流程
     ProcessedData --> VectorBuilder[向量库构建器<br/>vector_store.py]
-    VectorBuilder --> EmbeddingModel[嵌入模型<br/>BAAI/bge-small-zh-v1.5]
+    VectorBuilder --> EmbeddingModel[嵌入模型<br/>Qwen3-Embedding-0.6B]
     EmbeddingModel --> VectorStore[向量库<br/>vector_store/]
     VectorStore --> VectorManager
     
