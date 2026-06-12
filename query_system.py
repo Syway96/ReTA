@@ -6,189 +6,87 @@
 import os
 import sys
 import json
-import yaml
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
-from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 
 # 将项目根目录添加到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-
-# ==================== 统一配置管理 ====================
-
-@dataclass
-class EmbeddingConfig:
-    """嵌入模型配置"""
-    local_path: Optional[str] = None
-    online_fallback: Optional[str] = None
-    device: Optional[str] = None
-    normalize_embeddings: Optional[bool] = None
-    model_kwargs: Dict[str, Any] = field(default_factory=dict)
-    encode_kwargs: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class LLMConfig:
-    """大语言模型配置"""
-    provider: Optional[str] = None
-    model_name: Optional[str] = None
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
-    temperature: Optional[float] = None
-    num_predict: Optional[int] = None
-    top_p: Optional[float] = None
-    top_k: Optional[int] = None
-    num_ctx: Optional[int] = None
-
-
-@dataclass
-class RetrievalConfig:
-    """检索配置"""
-    k_per_store: Optional[int] = None
-    total_max_k: Optional[int] = None
-    similarity_threshold: Optional[float] = None
-    enable_reranking: Optional[bool] = None
-    dynamic_complexity: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class RerankConfig:
-    """重排序配置"""
-    enabled: Optional[bool] = None
-    method: Optional[str] = None
-    top_k: Optional[int] = None
-    score_threshold: Optional[float] = None
-    use_cross_encoder: Optional[bool] = None
-    cross_encoder_model: Optional[str] = None
-    cross_encoder_local_path: Optional[str] = None  # 本地模型路径
-
-
-@dataclass
-class PromptConfig:
-    """提示词配置"""
-    system_template: Optional[str] = None
-    human_template: Optional[str] = None
-
-
-@dataclass
-class SystemConfig:
-    """系统配置"""
-    enable_multiple_stores: Optional[bool] = None
-    show_retrieval_info: Optional[bool] = None
-    log_level: Optional[str] = None
-    streaming_output: Optional[bool] = None
-    streaming_delay: Optional[float] = None
-
-
-@dataclass
-class QASystemConfig:
-    """问答系统配置"""
-    project_dir: Optional[str] = None
-    vector_store_dir: Optional[str] = None
-    data_dir: Optional[str] = None
-    embedding: Optional[EmbeddingConfig] = None
-    llm: Optional[LLMConfig] = None
-    retrieval: Optional[RetrievalConfig] = None
-    rerank: Optional[RerankConfig] = None
-    prompt: Optional[PromptConfig] = None
-    system: Optional[SystemConfig] = None
-
-
-class UnifiedConfigManager:
-    """统一配置管理器"""
-
-    @staticmethod
-    def load_config(config_path: str = "config.yaml") -> QASystemConfig:
-        """加载配置"""
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f) or {}
-
-            # 提取配置
-            qa = config.get('qa_system', {})
-            vector = config.get('vector_processing', {})
-            data = config.get('data_processing', {})
-
-            # 环境变量覆盖 LLM 配置（优先级最高）
-            from dotenv import load_dotenv
-            load_dotenv()
-
-            if 'llm' not in qa:
-                qa['llm'] = {}
-
-            env_overrides = {
-                'provider': os.getenv('LLM_PROVIDER'),
-                'api_key': os.getenv('LLM_API_KEY'),
-                'api_base': os.getenv('LLM_API_BASE'),
-                'model_name': os.getenv('LLM_MODEL_NAME'),
-            }
-
-            for key, value in env_overrides.items():
-                if value is not None:
-                    qa['llm'][key] = value
-
-            # 环境变量覆盖模型路径配置（优先级最高）
-            embedding_model_path = os.getenv('EMBEDDING_MODEL_PATH')
-            if embedding_model_path:
-                if 'embedding' not in vector:
-                    vector['embedding'] = {}
-                vector['embedding']['local_path'] = embedding_model_path
-
-            cross_encoder_path = os.getenv('CROSS_ENCODER_MODEL_PATH')
-            if cross_encoder_path:
-                if 'rerank' not in qa:
-                    qa['rerank'] = {}
-                qa['rerank']['cross_encoder_local_path'] = cross_encoder_path
-
-            # 构建配置数据 - 使用dataclass.from_dict处理嵌套配置
-            from dacite import from_dict
-            
-            # 构建完整的配置字典
-            config_dict = {}
-            config_dict.update(qa)
-            config_dict['data_dir'] = data.get("output_dir")
-            config_dict['embedding'] = vector.get("embedding")
-            
-            return from_dict(QASystemConfig, config_dict)
-
-        except Exception as e:
-            logging.error(f"配置加载失败: {e}")
-            return QASystemConfig()
+from config import (
+    RerankConfig,
+    QASystemConfig,
+    UnifiedConfigManager,
+)
+from logging_utils import setup_logging
 
 
 class DocumentReranker:
-    """文档重排序器 - 支持多种重排序策略"""
+    """文档重排序器 - 支持多种重排序策略（BGE-Reranker 等 BERT 交叉编码器）"""
 
     def __init__(self, config: RerankConfig, embedding_model=None):
         """初始化重排序器"""
         self.config = config
         self.embedding_model = embedding_model
-        self.cross_encoder = None
+        self.reranker_model = None
+        self.reranker_tokenizer = None
+        self._device = None
 
         if config.use_cross_encoder and config.cross_encoder_model:
             self._init_cross_encoder()
 
     def _init_cross_encoder(self):
-        """初始化交叉编码器"""
+        """初始化 BGE-Reranker（基于 BERT 的交叉编码器，AutoModelForSequenceClassification）"""
         try:
-            from sentence_transformers import CrossEncoder
+            import torch
 
-            # 优先使用本地路径
-            if self.config.cross_encoder_local_path:
-                model_path = self.config.cross_encoder_local_path
-                logging.info(f"📂 使用本地模型路径: {model_path}")
-            else:
+            # 优先本地路径（.env 覆盖 > config 值）
+            model_path = os.getenv("CROSS_ENCODER_MODEL_PATH") or self.config.cross_encoder_local_path
+            if not model_path:
                 model_path = self.config.cross_encoder_model
-                logging.info(f"🌐 使用在线模型: {model_path}")
 
-            self.cross_encoder = CrossEncoder(model_path)
-            logging.info(f"✅ 交叉编码器加载成功: {model_path}")
+            logging.info(f"📂 加载重排序模型: {model_path}")
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+            self.reranker_tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.reranker_model = AutoModelForSequenceClassification.from_pretrained(
+                model_path
+            ).to(self._device).eval()
+
+            logging.info(f"✅ 重排序模型加载成功: {model_path} (device={self._device})")
         except Exception as e:
-            logging.warning(f"交叉编码器加载失败: {e}")
+            logging.warning(f"重排序模型加载失败: {e}", exc_info=True)
             logging.info("将使用基于嵌入的重排序方法")
+
+    def _compute_rerank_scores(self, query: str, documents: List[Any]) -> List[float]:
+        """使用 BGE-Reranker 计算每个文档的相关性分数（分批处理避免 OOM）
+
+        BGE-Reranker 是 BERT 架构的 SequenceClassification 模型，
+        直接输出 (query, doc) 配对的相关性 logit，经 sigmoid 映射到 [0,1]。
+        """
+        import torch
+        batch_size = 32
+        max_length = 512
+        all_scores = []
+
+        for start in range(0, len(documents), batch_size):
+            batch = documents[start:start + batch_size]
+            pairs = [[query, doc.page_content] for doc in batch]
+
+            inputs = self.reranker_tokenizer(
+                pairs, padding=True, truncation=True,
+                return_tensors="pt", max_length=max_length
+            )
+            inputs = {k: v.to(self._device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                logits = self.reranker_model(**inputs).logits.view(-1).float()
+                scores = torch.sigmoid(logits)
+                all_scores.extend(scores.tolist())
+
+        return all_scores
 
     def rerank(self, query: str, documents: List[Any]) -> List[Any]:
         """对检索结果进行重排序"""
@@ -202,8 +100,11 @@ class DocumentReranker:
         logging.info(f"🔄 开始重排序，方法: {self.config.method}，文档数: {len(documents)}")
 
         try:
-            if self.config.method == "cross_encoder" and self.cross_encoder:
+            if self.config.method == "cross_encoder" and self.reranker_model:
                 return self._rerank_with_cross_encoder(query, documents)
+            elif self.config.method == "cross_encoder" and not self.reranker_model:
+                logging.warning("交叉编码器未成功加载，回退到嵌入相似度重排序")
+                return self._rerank_with_embedding_similarity(query, documents)
             elif self.config.method == "embedding_similarity":
                 return self._rerank_with_embedding_similarity(query, documents)
             elif self.config.method == "hybrid":
@@ -219,31 +120,23 @@ class DocumentReranker:
             return documents
 
     def _rerank_with_cross_encoder(self, query: str, documents: List[Any]) -> List[Any]:
-        """使用交叉编码器重排序"""
-        if not self.cross_encoder:
+        """使用 BGE-Reranker 重排序"""
+        if not self.reranker_model:
             return self._rerank_with_embedding_similarity(query, documents)
 
-        # 准备查询-文档对
-        query_doc_pairs = [(query, doc.page_content) for doc in documents]
+        scores = self._compute_rerank_scores(query, documents)
 
-        # 计算相关性分数
-        scores = self.cross_encoder.predict(query_doc_pairs)
-
-        # 更新文档分数
         for doc, score in zip(documents, scores):
             doc.metadata['rerank_score'] = float(score)
 
-        # 按重排序分数排序（降序）
         reranked = sorted(documents, key=lambda x: x.metadata.get('rerank_score', 0), reverse=True)
 
-        # 应用阈值
         if self.config.score_threshold > 0:
             reranked = [
                 doc for doc in reranked
                 if doc.metadata.get('rerank_score', 0) >= self.config.score_threshold
             ]
 
-        # 限制数量
         top_k = self.config.top_k if self.config.top_k else len(reranked)
         return reranked[:top_k]
 
@@ -300,9 +193,8 @@ class DocumentReranker:
         original_scores = [doc.metadata.get('similarity_score', 0) for doc in documents]
 
         # 计算重排序分数
-        if self.cross_encoder:
-            query_doc_pairs = [(query, doc.page_content) for doc in documents]
-            rerank_scores = self.cross_encoder.predict(query_doc_pairs)
+        if self.reranker_model:
+            rerank_scores = self._compute_rerank_scores(query, documents)
         elif self.embedding_model:
             import numpy as np
             query_embedding = self.embedding_model.embed_query(query)
@@ -802,6 +694,16 @@ class QASystem:
             print(f"使用API: {api_base}")
             print(f"模型: {self.config.llm.model_name}")
 
+            # 构建 model_kwargs，支持 reasoning_effort
+            # DeepSeek API 有效值: high / low / medium / max / xhigh
+            # 其他值（包括 off、on 等）不对应，直接不传即关闭思考
+            model_kwargs = {}
+            API_VALID_REASONING = {'high', 'low', 'medium', 'max', 'xhigh'}
+            reasoning = self.config.llm.reasoning_effort
+            if reasoning and reasoning in API_VALID_REASONING:
+                model_kwargs['reasoning_effort'] = reasoning
+                print(f"思考模式: {reasoning}")
+
             # 创建LLM
             self.llm = ChatOpenAI(
                 api_key=api_key,
@@ -810,6 +712,7 @@ class QASystem:
                 temperature=self.config.llm.temperature,
                 max_tokens=self.config.llm.num_predict,
                 top_p=self.config.llm.top_p,
+                model_kwargs=model_kwargs,
             )
 
             print(f"✅ API LLM初始化完成")
@@ -855,25 +758,33 @@ class QASystem:
 
             # 格式化文档函数
             def format_documents(docs):
-                """格式化检索到的文档"""
+                """格式化检索到的文档，包含完整元数据供 LLM 引用"""
                 if not docs:
                     return "无相关上下文信息。"
 
                 formatted = []
                 for i, doc in enumerate(docs, 1):
                     content = doc.page_content
-
-                    # 获取元数据
                     metadata = doc.metadata
-                    source = metadata.get('source', '未知文档')
-                    page = metadata.get('page', '未知')
-                    store = metadata.get('source_store', '未知库')
+
+                    # 从元数据中提取可引用的来源信息
+                    file_name = metadata.get('file_name', metadata.get('source', '未知文档'))
+                    chapter_path = metadata.get('chapter_path', '')
+                    heading_text = metadata.get('heading_text', '')
                     score = metadata.get('similarity_score', 0)
 
-                    # 构建格式化字符串
+                    # 构建引用头：优先用 chapter_path，其次 heading_text，最后 file_name
+                    if chapter_path:
+                        source_label = chapter_path
+                    elif heading_text:
+                        source_label = heading_text
+                    else:
+                        source_label = file_name
+
                     formatted.append(
                         f"【片段 {i} | 相关度: {score:.3f}】\n"
-                        f"来源: {store} - {source} (第{page}页)\n"
+                        f"章节: {source_label}\n"
+                        f"出处: {file_name}\n"
                         f"内容: {content}\n"
                     )
 
@@ -1000,7 +911,7 @@ class QASystem:
 
         # 从配置中获取动态复杂度参数
         dynamic_config = getattr(self.config.retrieval, "dynamic_complexity", None)
-        if not dynamic_config or not getattr(dynamic_config, "enabled", True):
+        if not dynamic_config or not dynamic_config.get("enabled", True):
             # 如果未启用动态复杂度，使用固定逻辑
             if complexity == "no_retrieval":
                 # 无需检索：直接返回空结果，不进行向量检索
@@ -1020,11 +931,11 @@ class QASystem:
                 total_max_k = default_total_max_k
         else:
             # 使用配置中的参数
-            simple_ratio = getattr(dynamic_config, "simple_ratio", 0.5)
-            medium_ratio = getattr(dynamic_config, "medium_ratio", 1.0)
-            complex_ratio = getattr(dynamic_config, "complex_ratio", 1.5)
-            no_retrieval_ratio = getattr(dynamic_config, "no_retrieval_ratio", 0.0)
-            hard_cap_total_max_k = getattr(dynamic_config, "hard_cap_total_max_k", 20)
+            simple_ratio = dynamic_config.get("simple_ratio", 0.5)
+            medium_ratio = dynamic_config.get("medium_ratio", 1.0)
+            complex_ratio = dynamic_config.get("complex_ratio", 1.5)
+            no_retrieval_ratio = dynamic_config.get("no_retrieval_ratio", 0.0)
+            hard_cap_total_max_k = dynamic_config.get("hard_cap_total_max_k", 20)
 
             ratio_map = {
                 "simple": simple_ratio,
@@ -1049,6 +960,22 @@ class QASystem:
             "k_per_store": k_per_store,
             "total_max_k": total_max_k
         }
+
+    def set_reasoning_effort(self, level: str) -> bool:
+        """动态切换思考模式 (off / low / medium / high)"""
+        valid_levels = {'off', 'low', 'medium', 'high'}
+        if level not in valid_levels:
+            print(f"❌ 无效的思考级别: {level}，可选: {sorted(valid_levels)}")
+            return False
+
+        old_level = self.config.llm.reasoning_effort
+        self.config.llm.reasoning_effort = level
+        if self._init_llm():
+            print(f"✅ 思考模式切换: {old_level} → {level}")
+            return True
+        else:
+            self.config.llm.reasoning_effort = old_level
+            return False
 
     def query(self, question: str, verbose: bool = True, return_retrieved_docs: bool = False) -> str | Dict[str, Any]:
         """

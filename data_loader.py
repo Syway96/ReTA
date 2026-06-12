@@ -11,72 +11,24 @@ import sys
 import argparse
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 
-import yaml
-from dacite import from_dict
 from langchain_core.documents import Document
+
+from config import (
+    MarkdownChunkerConfig,
+    CleanerConfig,
+    ProcessingConfig,
+    DataProcessingConfigManager,
+)
 
 logger = logging.getLogger(__name__)
 
+
 # ==================== 配置管理 ====================
 
-@dataclass
-class MarkdownChunkerConfig:
-    """Markdown分块器配置"""
-    enabled: Optional[bool] = None
-    max_chunk_chars: Optional[int] = None
-    min_chunk_chars: Optional[int] = None
-    preserve_headings: Optional[bool] = None
-    combine_small_paragraphs: Optional[bool] = None
-    heading_level: Optional[int] = None
-    include_code_blocks: Optional[bool] = None
-    code_block_min_lines: Optional[int] = None
-
-
-@dataclass
-class CleanerConfig:
-    """Markdown文本清洗配置"""
-    remove_empty_lines: Optional[bool] = None
-    normalize_whitespace: Optional[bool] = None
-    remove_metadata: Optional[bool] = None
-
-
-@dataclass
-class StreamingConfig:
-    """流式处理配置"""
-    enabled: Optional[bool] = None
-    max_file_size_mb: Optional[int] = None
-
-
-@dataclass
-class ProcessingConfig:
-    """完整处理配置"""
-    output_dir: Optional[str] = None
-    markdown_chunker: Optional[MarkdownChunkerConfig] = None
-    cleaner: Optional[CleanerConfig] = None
-    streaming: Optional[StreamingConfig] = None
-    skip_existing: Optional[bool] = None
-
-
-class ConfigManager:
-    """配置管理器"""
-    @staticmethod
-    def load_config(config_path: str = "config.yaml") -> Optional[ProcessingConfig]:
-        """加载配置"""
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config_dict = yaml.safe_load(f)
-                data_config = config_dict.get('data_processing', {})
-                config = from_dict(ProcessingConfig, data_config)
-
-                return config
-        except FileNotFoundError:
-            logging.error(f"配置文件不存在: {config_path}")
-            return None
-        except Exception as e:
-            logging.error(f"配置加载失败: {e}")
-            return None
+# 保留本地别名，保持后续代码兼容
+ConfigManager = DataProcessingConfigManager
 
 
 # ==================== Markdown专用分块器 ====================

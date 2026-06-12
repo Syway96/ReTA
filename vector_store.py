@@ -9,83 +9,24 @@ import json
 import logging
 from typing import List, Dict, Optional, Tuple, Generator, Any
 from datetime import datetime
-from dataclasses import dataclass, asdict
 import threading
 import time
-import yaml
 from tqdm import tqdm
 from langchain_core.documents import Document
-from dacite import from_dict
+
+from config import (
+    VectorStoreConfig,
+    VectorStoreConfigManager,
+)
+from logging_utils import setup_logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-# ==================== 配置管理 ====================
-
-@dataclass
-class EmbeddingConfig:
-    """嵌入模型配置"""
-    local_path: Optional[str] = None
-    online_fallback: Optional[str] = None
-    device: Optional[str] = None
-    normalize_embeddings: Optional[bool] = None 
-    model_kwargs: Optional[Dict[str, Any]] = None
-    encode_kwargs: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class BatchConfig:
-    """批处理配置"""
-    enabled: Optional[bool] = None
-    batch_size: Optional[int] = None
-    show_progress: Optional[bool] = None
-    max_concurrent_batches: Optional[int] = None
-
-
-@dataclass
-class VectorStoreConfig:
-    """向量存储配置"""
-    persist_directory: Optional[str] = None
-    collection_prefix: Optional[str] = None
-    embedding: Optional[EmbeddingConfig] = None
-    batch_processing: Optional[BatchConfig] = None
-
-
-class ConfigManager:
-    """配置管理器"""
-    @staticmethod
-    def load_vector_config(config_path: str = "config.yaml") -> VectorStoreConfig:
-        """从YAML文件加载配置"""
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_dict = yaml.safe_load(f)
-
-        vector_config = config_dict.get('vector_processing', {})
-
-        return from_dict(VectorStoreConfig, vector_config)
-
-
 # ==================== 日志设置 ====================
 
-def setup_logging(log_level: str = "INFO", log_file: str = "logs/vector_store.log"):
-    """设置日志配置"""
-    # 确保日志目录存在
-    log_dir = os.path.dirname(log_file)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-    
-    # 配置日志
-    logging.basicConfig(
-        level=getattr(logging, log_level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
-
-logger = logging.getLogger(__name__)
+logger = setup_logging(log_file="logs/vector_store.log")
 
 
 # ==================== 核心向量存储管理器 ====================
@@ -109,7 +50,7 @@ class VectorStoreConnectionPool:
                 self._evict_oldest()
 
             # 创建新连接
-            from langchain_community.vectorstores import Chroma
+            from langchain_chroma import Chroma
             vector_store = Chroma(
                 persist_directory=persist_directory,
                 embedding_function=embedding_model,
@@ -141,7 +82,7 @@ class VectorStoreManager:
     """向量存储管理器 - 支持分批处理"""
     def __init__(self, config: Optional[VectorStoreConfig] = None):
         """初始化向量存储管理器"""
-        self.config = config or ConfigManager.load_vector_config()
+        self.config = config or VectorStoreConfigManager.load_config()
         self.embedding_model = None
         self.vector_store = None
 
@@ -211,7 +152,7 @@ class VectorStoreManager:
         if not force_recreate and dir_exists:
             logger.info(f"📂 加载现有向量库: {collection_name}")
             try:
-                from langchain_community.vectorstores import Chroma
+                from langchain_chroma import Chroma
                 vector_store = Chroma(
                     persist_directory=store_path,
                     embedding_function=self.embedding_model,
@@ -233,21 +174,20 @@ class VectorStoreManager:
                 store_path=store_path
             )
         else:
-            from langchain_community.vectorstores import Chroma
+            from langchain_chroma import Chroma
             vector_store = Chroma.from_documents(
                 documents=documents,
                 embedding=self.embedding_model,
                 persist_directory=store_path,
                 collection_name=collection_name
             )
-            vector_store.persist()  # 确保持久化
 
         logger.info(f"✅ 向量库创建成功: {collection_name} ({len(documents)}个文档)")
         return vector_store, store_path, False
 
     def _create_vector_store_with_batching(self, documents: List, collection_name: str, store_path: str) -> Any:
         """使用分批处理创建向量库"""
-        from langchain_community.vectorstores import Chroma
+        from langchain_chroma import Chroma
 
         batch_size = self.config.batch_processing.batch_size
         total_batches = (len(documents) - 1) // batch_size + 1
@@ -284,15 +224,11 @@ class VectorStoreManager:
                 # 后续批次：添加到现有库
                 vector_store.add_documents(batch)
 
-        # 持久化
-        if vector_store:
-            vector_store.persist()
-
         return vector_store
 
     def get_vector_store(self, collection_name: str):
         """获取特定向量库"""
-        from langchain_community.vectorstores import Chroma
+        from langchain_chroma import Chroma
 
         store_path = os.path.join(self.config.persist_directory, collection_name)
         
@@ -348,7 +284,7 @@ class DataLoader:
 class BatchProcessor:
     """批处理管理器 - 处理多个数据文件"""
     def __init__(self, config: Optional[VectorStoreConfig] = None):
-        self.config = config or ConfigManager.load_vector_config()
+        self.config = config or VectorStoreConfigManager.load_config()
         self.vs_manager = VectorStoreManager(config)
 
     def process_single_file(self, data_file: str, data_id: Optional[str] = None,
@@ -463,14 +399,15 @@ class BatchProcessor:
         return results
 
     def _discover_data_files(self, data_dir: str) -> List[Tuple[str, str]]:
-        """发现数据目录中的所有数据文件"""
+        """发现数据目录中的所有数据文件（汇总 + 目录扫描合并）"""
         if not os.path.exists(data_dir):
             logger.error(f"数据目录不存在: {data_dir}")
             return []
 
+        seen = set()
         results = []
 
-        # 方法1: 使用汇总文件
+        # 方法1: 从汇总文件读取
         summary_file = os.path.join(data_dir, "processing_summary.json")
         if os.path.exists(summary_file):
             try:
@@ -481,32 +418,35 @@ class BatchProcessor:
                     data_file = file_info.get("data_file", "")
                     data_id = file_info.get("data_id", "")
 
-                    # 处理可能的路径问题
                     if data_file and not os.path.exists(data_file):
-                        # 尝试在数据目录中查找
                         alt_file = os.path.join(data_dir, f"{data_id}.json")
                         if os.path.exists(alt_file):
                             data_file = alt_file
 
                     if data_file and os.path.exists(data_file):
                         results.append((data_file, data_id))
+                        seen.add(data_id)
 
                 if results:
                     logger.info(f"从汇总文件发现 {len(results)} 个数据文件")
-                    return results
 
             except Exception as e:
                 logger.warning(f"汇总文件读取失败: {e}")
 
-        # 方法2: 直接扫描目录
+        # 方法2: 直接扫描目录（补充汇总文件中可能缺失的文件）
         for filename in os.listdir(data_dir):
             if filename.endswith('.json') and not filename.endswith(
                     '_meta.json') and filename != 'processing_summary.json':
-                data_file = os.path.join(data_dir, filename)
                 data_id = os.path.splitext(filename)[0]
-                results.append((data_file, data_id))
+                if data_id not in seen:
+                    data_file = os.path.join(data_dir, filename)
+                    results.append((data_file, data_id))
+                    seen.add(data_id)
 
-        logger.info(f"扫描发现 {len(results)} 个数据文件")
+        if not results:
+            logger.error(f"目录中未发现任何数据文件: {data_dir}")
+        else:
+            logger.info(f"共发现 {len(results)} 个数据文件")
         return results
 
     def _generate_processing_report(self, results: List[Dict], success_count: int, total_count: int):

@@ -244,34 +244,31 @@ class ConfigValidator:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 self.config = yaml.safe_load(f) or {}
             
-            # 环境变量覆盖 LLM 配置
-            from dotenv import load_dotenv
-            load_dotenv()
-            
-            env_overrides = {
-                'provider': os.getenv('LLM_PROVIDER'),
-                'api_key': os.getenv('LLM_API_KEY'),
-                'api_base': os.getenv('LLM_API_BASE'),
-                'model_name': os.getenv('LLM_MODEL_NAME'),
-            }
+            # 环境变量覆盖
+            from config import load_env_overrides
+            env = load_env_overrides()
             
             llm = self.config.setdefault('qa_system', {}).setdefault('llm', {})
-            for key, value in env_overrides.items():
-                if value is not None:
-                    llm[key] = value
+            llm_env_map = {
+                'llm_provider': 'provider',
+                'llm_api_key': 'api_key',
+                'llm_api_base': 'api_base',
+                'llm_model_name': 'model_name',
+            }
+            for env_key, cfg_key in llm_env_map.items():
+                if env.get(env_key):
+                    llm[cfg_key] = env[env_key]
 
             # 环境变量覆盖模型路径配置
-            embedding_model_path = os.getenv('EMBEDDING_MODEL_PATH')
-            if embedding_model_path:
+            if env.get('embedding_model_path'):
                 vector_embedding = self.config.setdefault('vector_processing', {}).setdefault('embedding', {})
-                vector_embedding['local_path'] = embedding_model_path
+                vector_embedding['local_path'] = env['embedding_model_path']
                 qa_embedding = self.config.setdefault('qa_system', {}).setdefault('embedding', {})
-                qa_embedding['local_path'] = embedding_model_path
+                qa_embedding['local_path'] = env['embedding_model_path']
 
-            cross_encoder_path = os.getenv('CROSS_ENCODER_MODEL_PATH')
-            if cross_encoder_path:
+            if env.get('cross_encoder_model_path'):
                 rerank = self.config.setdefault('qa_system', {}).setdefault('rerank', {})
-                rerank['cross_encoder_local_path'] = cross_encoder_path
+                rerank['cross_encoder_local_path'] = env['cross_encoder_model_path']
 
             self.logger.success("配置文件加载成功 ✓")
             return True

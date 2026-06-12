@@ -19,9 +19,10 @@ logging.getLogger('chainlit').setLevel(logging.ERROR)
 logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
 
 try:
-    from query_system import QASystem, UnifiedConfigManager
+    from config import UnifiedConfigManager
+    from query_system import QASystem
 except ImportError:
-    print("❌ 请确保 query_system.py 在同一目录下")
+    print("❌ 请确保 query_system.py 和 config.py 在同一目录下")
     QASystem = None
     UnifiedConfigManager = None
     sys.exit(1)
@@ -30,16 +31,40 @@ load_dotenv()
 
 # ===================== 数据库配置 =====================
 
-os.environ['CHAINLIT_AUTH_SECRET'] = os.getenv('CHAINLIT_AUTH_SECRET', 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6')
-os.environ['DATABASE_URL'] = os.getenv('DATABASE_URL', 'postgresql+asyncpg://chainlit_user:060906@localhost:5432/chainlit_db')
+_auth_secret = os.getenv('CHAINLIT_AUTH_SECRET')
+if _auth_secret:
+    os.environ['CHAINLIT_AUTH_SECRET'] = _auth_secret
+else:
+    raise RuntimeError(
+        "❌ 未设置 CHAINLIT_AUTH_SECRET 环境变量，请在 .env 中配置\n"
+        "   可参考 .env.example 文件"
+    )
+
+_database_url = os.getenv('DATABASE_URL')
+if _database_url:
+    os.environ['DATABASE_URL'] = _database_url
+# 注意：main 分支无需 DATABASE_URL，仅 master 分支使用历史记录功能时需要
 
 # ===================== 认证配置 =====================
 
+def _parse_auth_users() -> dict:
+    """从环境变量 AUTH_USERS 解析用户凭据，格式: user1:pass1,user2:pass2"""
+    raw = os.getenv('AUTH_USERS', '')
+    if not raw:
+        return {}
+    users = {}
+    for pair in raw.split(','):
+        pair = pair.strip()
+        if ':' in pair:
+            user, pwd = pair.split(':', 1)
+            users[user.strip()] = pwd.strip()
+    return users
+
 @cl.password_auth_callback
 def auth_callback(username: str, password: str):
-    users = {
-        "Syway": "060906",
-    }
+    users = _parse_auth_users()
+    if not users:
+        return None
     if username in users and users[username] == password:
         return cl.User(identifier=username)
     return None
@@ -121,20 +146,22 @@ async def on_chat_start():
         config = qa_system.config
 
         # 发送欢迎消息
+        reasoning = config.llm.reasoning_effort or 'off'
+        reasoning_label = {"off": "关闭", "low": "低", "medium": "中", "high": "高"}.get(reasoning, reasoning)
         welcome_msg = f"""
-# AI课程智能体
+# ReTA - AI 课程助教 
 
 ## 系统状态
 - ✅ 问答系统已就绪
 - 📚 已加载 {len(qa_system.vector_manager.vector_stores)} 个知识库
-- 🤖 使用模型: {config.llm.model_name}
+- 🤖 使用模型: {config.llm.model_name} | 思考模式: {reasoning_label}
 - ⚙️ 检索配置: 每个库 {config.retrieval.k_per_store} 个文档，最多 {config.retrieval.total_max_k} 个
 - 📄 文档展示: **关闭**
 
 ## 控制命令
-- `/show_docs` - 启用显示检索文档
-- `/hide_docs` - 禁用显示检索文档
+- `/show_docs` / `/hide_docs` - 切换检索文档显示
 - `/status` - 查看当前开关状态
+- `/think off|low|medium|high` - 切换思考模式
 
 ## 示例问题
 - 介绍一下BERT
@@ -201,8 +228,14 @@ async def on_message(message: cl.Message):
         cl.user_session.set("show_retrieved_docs", show_docs)
 
     # 检查是否为控制命令
-    if user_input.lower() in ["/show_docs", "/hide_docs", "/status", "show_docs", "hide_docs", "status"]:
-        await handle_control_command(user_input, show_docs)
+    user_input_lower = user_input.lower()
+    
+    if user_input_lower in ["/show_docs", "/hide_docs", "/status", "show_docs", "hide_docs", "status"]:
+        await handle_control_command(user_input_lower, show_docs)
+        return
+    
+    if user_input_lower.startswith("/think") or user_input_lower.startswith("think"):
+        await handle_think_command(user_input_lower)
         return
 
     response_msg = None
@@ -279,6 +312,37 @@ async def handle_control_command(command: str, current_state: bool):
         status_text = "启用" if show_docs else "禁用"
         status_msg = f"## 📊 当前状态\n\n📄 **检索文档展示**: **{status_text}**"
         await cl.Message(content=status_msg).send()
+
+
+async def handle_think_command(command: str):
+    """处理思考模式命令"""
+    labels = {"off": "关闭", "low": "低", "medium": "中", "high": "高"}
+    parts = command.strip().split()
+    
+    if len(parts) < 2:
+        qa_system = cl.user_session.get("qa_system")
+        if qa_system:
+            current = qa_system.config.llm.reasoning_effort or 'off'
+            msg = f"## 🧠 思考模式\n\n当前: **{labels.get(current, current)}**\n\n用法: `/think off|low|medium|high`"
+            await cl.Message(content=msg).send()
+        return
+    
+    level = parts[1].lower()
+    if level not in labels:
+        await cl.Message(content=f"❌ 无效级别: `{level}`，可选: `off` `low` `medium` `high`").send()
+        return
+    
+    qa_system = cl.user_session.get("qa_system")
+    if not qa_system:
+        await cl.Message(content="❌ 系统未就绪").send()
+        return
+    
+    old_level = qa_system.config.llm.reasoning_effort or 'off'
+    if qa_system.set_reasoning_effort(level):
+        msg = f"## ✅ 思考模式已切换\n\n{labels.get(old_level, old_level)} → **{labels.get(level, level)}**"
+        await cl.Message(content=msg).send()
+    else:
+        await cl.Message(content="❌ 切换思考模式失败").send()
 
 
 async def display_retrieved_docs(retrieved_docs: list):
