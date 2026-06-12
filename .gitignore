@@ -22,3 +22,6 @@ logs/
 config.yaml
 CLAUDE.md
 .claude
+.chainlit/translations/
+.tests/
+logging_utils.py
