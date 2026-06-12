@@ -2,10 +2,6 @@
 
 基于检索增强生成（RAG）的 AI 课程智能问答系统，使用 LangChain 框架和 Chainlit 界面。
 
-*【项目分支】*
-- `main`：无 Chainlit 历史记录功能，配置较易
-- `master`：可使用 Chainlit 历史记录功能，需配置 PostgreSQL 数据库
-
 ## 一、项目定位
 
 本项目旨在利用 RAG 技术，使大模型能够根据问题需求，智能检索知识库中的相关信息，减少幻觉，提供严格基于知识库的回答，并附精确的参考来源供进一步查阅。
@@ -34,6 +30,7 @@
 
 - 基于 Chainlit 的 Web 对话界面
 - 支持展示检索到的文档片段
+- 支持聊天历史持久化（需配置 PostgreSQL 数据库）
 
 ### 2.5 回答规范
 
@@ -53,11 +50,11 @@
 
 ### 3.1 环境准备
 
-- Python 3.11.x（建议 3.11.14）
+- Python 3.11
 - 创建 conda 虚拟环境:
 ```bash
 # 使用 Conda 创建环境
-conda create -n ReTA python=3.11.14 -y
+conda create -n ReTA python=3.11 -y
 conda activate ReTA
 
 # 或使用 venv（Linux/macOS）
