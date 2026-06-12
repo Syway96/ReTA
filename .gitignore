@@ -23,5 +23,5 @@ config.yaml
 CLAUDE.md
 .claude
 .chainlit/translations/
-.tests/
+tests/
 logging_utils.py
