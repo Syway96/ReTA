@@ -481,8 +481,14 @@ class VectorStoreManager:
 
                 # 添加来源信息
                 for doc, score in results:
-                    # 添加分数和来源信息
-                    doc.metadata['similarity_score'] = float(score)
+                    # Chroma 使用 L2 空间时返回的是距离（越小越相似）。
+                    # 向量已归一化（normalize_embeddings=True），余弦相似度 = 1 - d²/2，
+                    # 换算后统一按“相似度”语义处理：越大越相似。
+                    distance = float(score)
+                    similarity = 1.0 - (distance ** 2) / 2.0
+                    similarity = max(-1.0, min(1.0, similarity))
+                    doc.metadata['similarity_score'] = similarity
+                    doc.metadata['distance'] = distance
                     doc.metadata['source_store'] = store_id
 
                     # 确保必要元数据存在
@@ -558,6 +564,7 @@ class QASystem:
         self.config = config or UnifiedConfigManager.load_config()
         self.vector_manager = None
         self.llm = None
+        self._classifier_llm = None
         self.qa_chain = None
 
         if not self._init_system():
@@ -666,6 +673,12 @@ class QASystem:
                 top_k=self.config.llm.top_k,
                 num_ctx=self.config.llm.num_ctx
             )
+            # 复杂度分类器单独使用 temperature=0，保证分类结果稳定
+            self._classifier_llm = ChatOllama(
+                model=self.config.llm.model_name,
+                temperature=0.0,
+                num_predict=8,
+            )
 
             print(f"✅ 本地LLM初始化完成: {self.config.llm.model_name}")
             return True
@@ -713,6 +726,14 @@ class QASystem:
                 max_tokens=self.config.llm.num_predict,
                 top_p=self.config.llm.top_p,
                 model_kwargs=model_kwargs,
+            )
+            # 复杂度分类器单独使用 temperature=0，保证分类结果稳定
+            self._classifier_llm = ChatOpenAI(
+                api_key=api_key,
+                base_url=api_base,
+                model=self.config.llm.model_name,
+                temperature=0.0,
+                max_tokens=8,
             )
 
             print(f"✅ API LLM初始化完成")
@@ -893,7 +914,8 @@ class QASystem:
 
         complexity = "medium"
         try:
-            llm_result = self.llm.invoke(prompt)
+            classifier = getattr(self, "_classifier_llm", None) or self.llm
+            llm_result = classifier.invoke(prompt)
             content = getattr(llm_result, "content", "")
             if isinstance(content, list):
                 content = " ".join(str(item) for item in content)
