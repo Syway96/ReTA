@@ -162,6 +162,7 @@ async def on_chat_start():
 - `/show_docs` / `/hide_docs` - 切换检索文档显示
 - `/status` - 查看当前开关状态
 - `/think off|low|medium|high` - 切换思考模式
+- `/model <模型名>` - 切换模型（如 deepseek-v4-pro / deepseek-v4-flash）
 
 ## 示例问题
 - 介绍一下BERT
@@ -234,6 +235,10 @@ async def on_message(message: cl.Message):
         await handle_control_command(user_input_lower, show_docs)
         return
     
+    if user_input_lower.startswith("/model"):
+        await handle_model_command(user_input_lower)
+        return
+
     if user_input_lower.startswith("/think") or user_input_lower.startswith("think"):
         await handle_think_command(user_input_lower)
         return
@@ -310,8 +315,46 @@ async def handle_control_command(command: str, current_state: bool):
     elif command in ["/status", "status"]:
         show_docs = cl.user_session.get("show_retrieved_docs")
         status_text = "启用" if show_docs else "禁用"
-        status_msg = f"## 📊 当前状态\n\n📄 **检索文档展示**: **{status_text}**"
+        qa_system = cl.user_session.get("qa_system")
+        if qa_system:
+            reasoning = qa_system.config.llm.reasoning_effort or 'off'
+            labels = {"off": "关闭", "low": "低", "medium": "中", "high": "高"}
+            status_msg = (
+                f"## 📊 当前状态\n\n"
+                f"🤖 **模型**: {qa_system.config.llm.model_name}\n\n"
+                f"🧠 **思考模式**: {labels.get(reasoning, reasoning)}\n\n"
+                f"📄 **检索文档展示**: **{status_text}**\n\n"
+                f"⚙️ 检索配置: 每个库 {qa_system.config.retrieval.k_per_store} 个，"
+                f"最多 {qa_system.config.retrieval.total_max_k} 个"
+            )
+        else:
+            status_msg = f"## 📊 当前状态\n\n📄 **检索文档展示**: **{status_text}**"
         await cl.Message(content=status_msg).send()
+
+
+async def handle_model_command(command: str):
+    """处理模型切换命令"""
+    parts = command.strip().split()
+    qa_system = cl.user_session.get("qa_system")
+    if not qa_system:
+        await cl.Message(content="❌ 系统未就绪").send()
+        return
+    if len(parts) < 2:
+        msg = (
+            "## 🤖 模型切换\n\n"
+            f"当前模型: **{qa_system.config.llm.model_name}**\n\n"
+            "用法: `/model <模型名>`\n\n"
+            "示例: `/model deepseek-v4-pro`、`/model deepseek-v4-flash`\n\n"
+            "切换后立即生效（作用于全部会话）"
+        )
+        await cl.Message(content=msg).send()
+        return
+    model_name = parts[1]
+    old_model = qa_system.config.llm.model_name
+    if qa_system.set_model(model_name):
+        await cl.Message(content=f"## ✅ 模型已切换\n\n{old_model} → **{model_name}**").send()
+    else:
+        await cl.Message(content=f"❌ 切换模型失败：`{model_name}`").send()
 
 
 async def handle_think_command(command: str):

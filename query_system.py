@@ -992,11 +992,31 @@ class QASystem:
 
         old_level = self.config.llm.reasoning_effort
         self.config.llm.reasoning_effort = level
-        if self._init_llm():
+        # 问答链在构建时绑定了 LLM 实例，切换后必须重建链
+        if self._init_llm() and self._init_qa_chain():
             print(f"✅ 思考模式切换: {old_level} → {level}")
             return True
         else:
             self.config.llm.reasoning_effort = old_level
+            self._init_llm()
+            self._init_qa_chain()
+            return False
+
+    def set_model(self, model_name: str) -> bool:
+        """动态切换模型：更新配置并重建 LLM 与问答链"""
+        name = str(model_name or "").strip()
+        if not name:
+            print("❌ 模型名不能为空")
+            return False
+        old_model = self.config.llm.model_name
+        self.config.llm.model_name = name
+        if self._init_llm() and self._init_qa_chain():
+            print(f"✅ 模型切换: {old_model} → {name}")
+            return True
+        else:
+            self.config.llm.model_name = old_model
+            self._init_llm()
+            self._init_qa_chain()
             return False
 
     def query(self, question: str, verbose: bool = True, return_retrieved_docs: bool = False) -> str | Dict[str, Any]:
