@@ -4,7 +4,7 @@
 
 ## 相关项目
 
-- [TeTA](https://github.com/Syway96/TeTA)：轻量级 AI 教材库问答系统（ReTA 进阶工作）。
+- [AiTA](https://github.com/Syway96/AiTA)：轻量级 AI 学习助手（ReTA 进阶工作）。
 
 ## 一、项目定位
 
@@ -237,12 +237,3 @@ ReTA/
 ├─ processed_data/               # 分块后的 JSON 数据（运行后生成）
 └─ vector_store/                 # 持久化向量库目录（运行后生成）
 ```
-
----
-
-## 后续计划
-
-- 使用 LangGraph 实现更复杂的问答流程
-- 文档上传：用户可在对话中上传文件作为上下文
-- 查询增强：用户可选择是否优化输入内容，以尝试提升检索效果
-- 网页界面优化：提供知识库选择等额外功能
